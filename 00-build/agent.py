@@ -29,6 +29,9 @@ import json
 import os
 import sys
 from pathlib import Path
+import hashlib
+from datetime import date
+import json
 
 from openai import OpenAI
 
@@ -102,6 +105,7 @@ class Bounds:
 
 
 OUTPUT_DIR = Path(__file__).parent / "run-output"
+STATE_FILE = Path(__file__).parent / "state.json"
 
 
 def banner(text: str) -> None:
@@ -144,7 +148,17 @@ def run(which: str = "happy") -> None:
     if "error" in task:
         print(task)
         return
-
+    # --- simple per-task/day dedupe + persistent state -----------------
+    try:
+        state = json.loads(STATE_FILE.read_text())
+    except Exception:
+        state = {}
+    today = date.today().isoformat()
+    digest = hashlib.sha256(task["body"].encode()).hexdigest()
+    dedupe_key = f"{which}:{today}"
+    if state.get("runs", {}).get(dedupe_key, {}).get("digest") == digest:
+        print(f"Skipping run {which}: already ran today (dedupe).")
+        return
     banner(f"CORTEX RUN, fixture: task-{which}  (auto-queue cap {MAX_QUEUE_ITEMS} items)")
     print(task["body"])
 
@@ -155,6 +169,7 @@ def run(which: str = "happy") -> None:
     source_log: list[str] = [task["body"]]
     revisions = 0
     last_draft = ""
+    no_progress_count = 0
 
     for step in range(1, MAX_ITERATIONS + 1):
         if bounds.over_cap():
@@ -178,6 +193,39 @@ def run(which: str = "happy") -> None:
                 source_log.append(f"{fn}({args}) -> {json.dumps(result)}")
                 print(f"\n[step {step}] TOOL {fn}({args})")
                 print(f"          -> {json.dumps(result)[:300]}")
+                # Detect tool-level errors and escalate to human
+                if isinstance(result, dict) and result.get("error"):
+                    reason = f"tool {fn} error: {result.get('error')}"
+                    banner(f"ESCALATING: {reason}")
+                    # persist state as stuck / needs_human
+                    state.setdefault("runs", {})[dedupe_key] = {
+                        "digest": digest, "date": today, "status": "needs_human",
+                        "reason": reason
+                    }
+                    try:
+                        STATE_FILE.write_text(json.dumps(state))
+                    except Exception:
+                        pass
+                    emit_deliverable(which, last_draft, accepted=False,
+                                     reason=reason, cost=bounds.cost)
+                    return
+                # Detect confidential roadmap leakage
+                if fn == "get_roadmap":
+                    text = json.dumps(result)
+                    if "CONFIDENTIAL" in text.upper():
+                        reason = "confidential roadmap item encountered"
+                        banner(f"ESCALATING: {reason}")
+                        state.setdefault("runs", {})[dedupe_key] = {
+                            "digest": digest, "date": today, "status": "needs_human",
+                            "reason": reason
+                        }
+                        try:
+                            STATE_FILE.write_text(json.dumps(state))
+                        except Exception:
+                            pass
+                        emit_deliverable(which, last_draft, accepted=False,
+                                         reason=reason, cost=bounds.cost)
+                        return
                 messages.append({"role": "tool", "tool_call_id": call.id,
                                  "content": json.dumps(result)})
             continue
@@ -187,6 +235,26 @@ def run(which: str = "happy") -> None:
         last_draft = proposed
         print(f"\n[step {step}] PROPOSED OUTPUT:\n{proposed}")
 
+        # no-progress detection: if draft unchanged across iterations -> escalate
+        if proposed.strip() and proposed.strip() == last_draft.strip() and proposed.strip():
+            no_progress_count += 1
+        else:
+            no_progress_count = 0
+        if no_progress_count >= 2:
+            reason = f"no progress after {no_progress_count} iterations"
+            banner(f"ESCALATING: {reason}")
+            state.setdefault("runs", {})[dedupe_key] = {
+                "digest": digest, "date": today, "status": "stuck",
+                "reason": reason
+            }
+            try:
+                STATE_FILE.write_text(json.dumps(state))
+            except Exception:
+                pass
+            emit_deliverable(which, last_draft, accepted=False,
+                             reason=reason, cost=bounds.cost)
+            return
+
         banner("CRITIC, independent validation")
         verdict = review(client, MODEL, proposed, "\n".join(source_log))
         # Estimate critic spend too.
@@ -195,6 +263,14 @@ def run(which: str = "happy") -> None:
         print(json.dumps({k: v for k, v in verdict.items() if k != "_usage"}, indent=2))
 
         if verdict["verdict"] == "pass":
+            # persist run success state for dedupe
+            state.setdefault("runs", {})[dedupe_key] = {
+                "digest": digest, "date": today, "status": "success"
+            }
+            try:
+                STATE_FILE.write_text(json.dumps(state))
+            except Exception:
+                pass
             banner(f"HITL CHECKPOINT, status update + any proposed stories queued for "
                    f"your review. Nothing posted, no commitments made. "
                    f"Run cost ≈ ${bounds.cost:.4f}")
@@ -206,6 +282,14 @@ def run(which: str = "happy") -> None:
             reason = f"validator rejected {MAX_REVISIONS}x (revision cap)"
             banner(f"REVISION CAP hit ({MAX_REVISIONS}). Escalating to a human "
                    f"instead of looping. Run cost ≈ ${bounds.cost:.4f}")
+            state.setdefault("runs", {})[dedupe_key] = {
+                "digest": digest, "date": today, "status": "needs_human",
+                "reason": reason
+            }
+            try:
+                STATE_FILE.write_text(json.dumps(state))
+            except Exception:
+                pass
             emit_deliverable(which, last_draft, accepted=False,
                              reason=reason, cost=bounds.cost)
             return
