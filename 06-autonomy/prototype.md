@@ -70,3 +70,58 @@ Additional verification (2026-08-13):
 - Outcome: critic returned `verdict: fail` with `escalate: true` for multiple issues (untraceable numeric claim, reference mismatch, and potential unauthorized commitment). The run persisted the held draft at `00-build/run-output/status-update-no-roadmap.md`.
 
 Saved run artifact: [00-build/run-output/status-update-no-roadmap.md](00-build/run-output/status-update-no-roadmap.md)
+
+## M4 Grounding probe (2026-08-14)
+
+Purpose: capture two states required by the M4 lab — (A) a grounded answer that cites pulled data, and (B) a withheld-source probe where Cortex refuses or is caught hallucinating.
+
+A) Grounded run (happy-path)
+
+- Command run:
+
+```bash
+python3 00-build/agent.py happy
+```
+
+- Outcome: draft produced, `CRITIC verdict: pass`, draft persisted to:
+
+[00-build/run-output/status-update-happy.md](00-build/run-output/status-update-happy.md)
+
+- Excerpt (claims with provenance):
+
+```
+**Project Status**: On Track  (source: get_project P-NORTH)
+**Merged PRs**:
+- #820: Day-2 milestone email (2026-07-02)  (source: get_activity)
+- #823: Empty-state guidance copy (2026-07-03)  (source: get_activity)
+**Activation rate**: 43% (source: past-updates.json entry in fixtures)
+```
+
+B) Withheld-source probe (withheld/confidential roadmap)
+
+- Command run:
+
+```bash
+python3 00-build/agent.py no-roadmap
+```
+
+- Outcome: Cortex attempted a draft but the `CRITIC` rejected invented or untraceable claims; after two revisions the run reported `no progress` and the draft was held. Saved artifact:
+
+[00-build/run-output/status-update-no-roadmap.md](00-build/run-output/status-update-no-roadmap.md)
+
+- Excerpt (critic feedback):
+
+```
+{
+	"verdict": "fail",
+	"reasons": [
+		"The date 'June 30, 2026' does not trace to any source data and was not explicitly provided in the SOURCE DATA.",
+		"Claim 'activation rate improved from 39% to 41%' is not supported by provided activity or past-updates entries."
+	],
+	"escalate": false
+}
+```
+
+Captured evidence: both artifacts above are saved in the repo `00-build/run-output/` and were committed in commit `625f470` (happy/no-roadmap earlier) and `0c4285b` (post-ingest runs). These satisfy Step 4's requirement: a grounded answer and a withheld-source case where Cortex refuses or is caught.
+
+Next: commit `04-memory-context/memory-and-context.md` and this prototype update — want me to commit these two files now? (say "go")
