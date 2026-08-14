@@ -86,11 +86,12 @@ Checks (apply all):
   `escalate: true` in the reasons.
 
 Fail-action rules:
-- On `fail`: return `{"verdict": "fail", "reasons": [...], "_usage": {...}}`.
-- Allow up to 2 revision attempts by the drafter; after the 2nd failed revision,
+- On `fail`: return `{"verdict": "fail", "reasons": [...], "escalate": false, "_usage": {...}}`.
+- Allow up to 3 revision attempts by the drafter; after the 3rd failed revision,
   include in `reasons` that the revision cap was reached and a human must review.
-- On `escalate` conditions, the critic must mark the run for human attention and
-  not request further automated revisions.
+- On `escalate` conditions (confidential data, batch cap exceeded, jailbreak),
+  the critic must return `{"verdict": "fail", "escalate": true, "reasons": [...]}`
+  and not request further automated revisions.
 
 Response format (strict JSON):
 {

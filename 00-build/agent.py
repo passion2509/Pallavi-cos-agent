@@ -48,10 +48,16 @@ except ImportError:
 
 # --- Bounds (your M5 deliverable: tune these and justify them) ----------------
 MODEL = os.environ.get("CORTEX_MODEL", "gpt-4o-mini")
-MAX_ITERATIONS = int(os.environ.get("CORTEX_MAX_ITERATIONS", "8"))
-MAX_REVISIONS = int(os.environ.get("CORTEX_MAX_REVISIONS", "2"))
-COST_CAP_USD = float(os.environ.get("CORTEX_COST_CAP_USD", "0.50"))
-MAX_QUEUE_ITEMS = int(os.environ.get("CORTEX_MAX_QUEUE_ITEMS", "10"))
+# Increased defaults: allow a few more iterations/revisions and a higher cost
+# cap during testing and demonstration runs. These can still be tuned via
+# environment variables `CORTEX_MAX_ITERATIONS`, `CORTEX_MAX_REVISIONS`, and
+# `CORTEX_COST_CAP_USD` in production.
+# Set MAX_ITERATIONS to 1 and COST_CAP_USD to 0.05 per user request.
+MAX_ITERATIONS = int(os.environ.get("CORTEX_MAX_ITERATIONS", "1"))
+MAX_REVISIONS = int(os.environ.get("CORTEX_MAX_REVISIONS", "3"))
+COST_CAP_USD = float(os.environ.get("CORTEX_COST_CAP_USD", "0.05"))
+# Raise the queue cap to allow larger proposal batches during experiments.
+MAX_QUEUE_ITEMS = int(os.environ.get("CORTEX_MAX_QUEUE_ITEMS", "20"))
 # Rough $ per 1M tokens for your chosen model, set to match its pricing.
 PRICE_IN = float(os.environ.get("CORTEX_PRICE_IN_PER_M", "0.15"))
 PRICE_OUT = float(os.environ.get("CORTEX_PRICE_OUT_PER_M", "0.60"))
